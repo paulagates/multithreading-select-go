@@ -7,37 +7,52 @@ import (
 	"time"
 )
 
+const (
+	cep          = "01153000"
+	urlBrasilAPI = "https://brasilapi.com.br/api/cep/v1/"
+	urlViaCEP    = "http://viacep.com.br/ws/"
+	timeout      = 1 * time.Second
+)
+
 func main() {
-	c1 := make(chan string)
-	c2 := make(chan string)
-	cep := "01153000"
-	urlBrasilAPI := "https://brasilapi.com.br/api/cep/v1/" + cep
-	urlViaCEP := "http://viacep.com.br/ws/" + cep + "/json/"
-	go buscaAPI(urlBrasilAPI, c1)
-	go buscaAPI(urlViaCEP, c2)
+	brasilAPIChannel := make(chan *http.Response)
+	viaCEPChannel := make(chan *http.Response)
+
+	go buscaDaApi(urlBrasilAPI+cep, brasilAPIChannel)
+	go buscaDaApi(urlViaCEP+cep+"/json/", viaCEPChannel)
+
 	select {
-	case r1 := <-c1:
-		println("Recebido do brasilapi:", r1)
-	case r2 := <-c2:
-		println("Recebido do viacep:", r2)
-	case <-time.After(1 * time.Second):
-		println("timeout")
+	case response := <-brasilAPIChannel:
+		fmt.Println("Recebido do BrasilAPI:")
+		pegaJson(response)
+	case response := <-viaCEPChannel:
+		fmt.Println("Recebido do ViaCEP:")
+		pegaJson(response)
+	case <-time.After(timeout):
+		fmt.Println("Timeout ao aguardar respostas das APIs.")
 	}
 }
 
-func buscaAPI(url string, c chan<- string) {
+func buscaDaApi(url string, c chan<- *http.Response) {
 	resp, err := http.Get(url)
 	if err != nil {
-		c <- fmt.Sprintf("Erro na requisição: %v", err)
+		fmt.Printf("Erro ao fazer requisição para %s: %v\n", url, err)
+		c <- nil
+		return
+	}
+	c <- resp
+}
+
+func pegaJson(resp *http.Response) {
+	if resp == nil {
+		fmt.Println("Erro: resposta vazia ou falha na requisição.")
 		return
 	}
 	defer resp.Body.Close()
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c <- fmt.Sprintf("Erro ao ler a resposta: %v", err)
+		fmt.Printf("Erro ao ler o corpo da resposta: %v\n", err)
 		return
 	}
-
-	c <- string(body)
+	fmt.Println(string(body))
 }
