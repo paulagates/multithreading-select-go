@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,8 +19,11 @@ func main() {
 	brasilAPIChannel := make(chan *http.Response)
 	viaCEPChannel := make(chan *http.Response)
 
-	go requisitaAPI(urlBrasilAPI+cep, brasilAPIChannel)
-	go requisitaAPI(urlViaCEP+cep+"/json/", viaCEPChannel)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	go requisitaAPI(ctx, urlBrasilAPI+cep, brasilAPIChannel)
+	go requisitaAPI(ctx, urlViaCEP+cep+"/json/", viaCEPChannel)
 
 	select {
 	case response := <-brasilAPIChannel:
@@ -28,18 +32,25 @@ func main() {
 	case response := <-viaCEPChannel:
 		fmt.Println("Recebido do ViaCEP:")
 		pegaResposta(response)
-	case <-time.After(timeout):
+	case <-ctx.Done():
 		fmt.Println("Timeout ao aguardar respostas das APIs.")
 	}
 }
 
-func requisitaAPI(url string, c chan<- *http.Response) {
-	resp, err := http.Get(url)
+func requisitaAPI(ctx context.Context, url string, c chan<- *http.Response) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		c <- nil
+		return
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		fmt.Printf("Erro ao fazer requisição para %s: %v\n", url, err)
 		c <- nil
 		return
 	}
+
 	c <- resp
 }
 
